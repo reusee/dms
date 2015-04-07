@@ -111,3 +111,41 @@ func (l Loader) Provide(name string, v interface{}) {
 		v:    v,
 	}
 }
+
+type Cast struct {
+	fns  []interface{}
+	what reflect.Type
+}
+
+func NewCast(castType interface{}) *Cast {
+	what := reflect.TypeOf(castType).Elem()
+	if _, ok := castHandlers[what]; !ok {
+		panic(ErrUnknownCastType{what})
+	}
+	return &Cast{
+		what: what,
+	}
+}
+
+var castHandlers = map[reflect.Type]func(fns, args []interface{}){
+	reflect.TypeOf((*func(int))(nil)).Elem(): func(fns, args []interface{}) {
+		for _, fn := range fns {
+			fn.(func(int))(args[0].(int))
+		}
+	},
+}
+
+func AddCastType(p interface{}, handler func(fns, args []interface{})) {
+	castHandlers[reflect.TypeOf(p).Elem()] = handler
+}
+
+func (c *Cast) Call(args ...interface{}) {
+	castHandlers[c.what](c.fns, args)
+}
+
+func (c *Cast) Add(fn interface{}) {
+	if reflect.TypeOf(fn) != c.what {
+		panic(ErrBadCastFunc{fn})
+	}
+	c.fns = append(c.fns, fn)
+}

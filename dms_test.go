@@ -81,3 +81,21 @@ func TestNotProvided(t *testing.T) {
 	}()
 	MaxResolveTime = old
 }
+
+func TestCast(t *testing.T) {
+	n := 0
+	c := NewCast((*func(int))(nil))
+	c.Add(func(i int) {
+		n += i
+	})
+	c.Add(func(i int) {
+		n += i * 2
+	})
+	c.Add(func(i int) {
+		n += i * 4
+	})
+	c.Call(1)
+	if n != 7 {
+		t.Fail()
+	}
+}
