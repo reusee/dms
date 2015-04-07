@@ -3,6 +3,7 @@ package dms
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 )
 
@@ -49,7 +50,7 @@ func New() *Sys {
 			case r := <-reqChan:
 				if v, ok := keep[r.name]; ok {
 					reflect.ValueOf(r.p).Elem().Set(v)
-					close(r.done)
+					r.done <- struct{}{}
 				} else {
 					reqs[r.name] = append(reqs[r.name], r)
 				}
@@ -58,7 +59,7 @@ func New() *Sys {
 				keep[p.name] = v
 				for _, r := range reqs[p.name] {
 					reflect.ValueOf(r.p).Elem().Set(v)
-					close(r.done)
+					r.done <- struct{}{}
 				}
 				reqs[p.name] = reqs[p.name][0:0]
 			case <-closed:
@@ -84,8 +85,14 @@ func (s *Sys) Load(mod Mod) {
 	mod.Load(s.loader)
 }
 
+var sigChanPool = sync.Pool{
+	New: func() interface{} {
+		return make(chan struct{})
+	},
+}
+
 func (l Loader) Require(name string, p interface{}) {
-	done := make(chan struct{})
+	done := sigChanPool.Get().(chan struct{})
 	l.reqChan <- req{
 		name: name,
 		p:    p,
@@ -96,6 +103,7 @@ func (l Loader) Require(name string, p interface{}) {
 	case <-time.After(MaxResolveTime):
 		panic(fmt.Errorf("%s is not provided", name))
 	}
+	sigChanPool.Put(done)
 }
 
 func (l Loader) Provide(name string, v interface{}) {
