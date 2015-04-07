@@ -1,7 +1,6 @@
 package dms
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
 	"time"
@@ -101,7 +100,7 @@ func (l Loader) Require(name string, p interface{}) {
 	select {
 	case <-done:
 	case <-time.After(MaxResolveTime):
-		panic(fmt.Errorf("%s is not provided", name))
+		panic(ErrNotProvided{name})
 	}
 	sigChanPool.Put(done)
 }
