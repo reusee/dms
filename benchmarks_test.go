@@ -18,3 +18,12 @@ func BenchmarkRequire(b *testing.B) {
 		}
 	}})
 }
+
+func BenchmarkCast(b *testing.B) {
+	c := NewCast((*func(int))(nil))
+	c.Add(func(int) {})
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.Call(0)
+	}
+}
