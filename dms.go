@@ -27,7 +27,7 @@ type Sys struct {
 type req struct {
 	name string
 	p    interface{}
-	done chan struct{}
+	res  chan error
 }
 
 type pro struct {
@@ -48,17 +48,26 @@ func New() *Sys {
 			select {
 			case r := <-reqChan:
 				if v, ok := keep[r.name]; ok {
-					reflect.ValueOf(r.p).Elem().Set(v)
-					r.done <- struct{}{}
+					if target := reflect.ValueOf(r.p).Elem(); target.Type() != v.Type() {
+						r.res <- ErrTypeMismatch{v.Type(), target.Type()}
+					} else {
+						target.Set(v)
+						r.res <- nil
+					}
 				} else {
 					reqs[r.name] = append(reqs[r.name], r)
 				}
 			case p := <-proChan:
 				v := reflect.ValueOf(p.v)
+				//TODO disallow duplicated provide
 				keep[p.name] = v
 				for _, r := range reqs[p.name] {
-					reflect.ValueOf(r.p).Elem().Set(v)
-					r.done <- struct{}{}
+					if target := reflect.ValueOf(r.p).Elem(); target.Type() != v.Type() {
+						r.res <- ErrTypeMismatch{v.Type(), target.Type()}
+					} else {
+						target.Set(v)
+						r.res <- nil
+					}
 				}
 				reqs[p.name] = reqs[p.name][0:0]
 			case <-closed:
@@ -84,25 +93,28 @@ func (s *Sys) Load(mod Mod) {
 	mod.Load(s.loader)
 }
 
-var sigChanPool = sync.Pool{
+var resChanPool = sync.Pool{
 	New: func() interface{} {
-		return make(chan struct{})
+		return make(chan error)
 	},
 }
 
 func (l Loader) Require(name string, p interface{}) {
-	done := sigChanPool.Get().(chan struct{})
+	res := resChanPool.Get().(chan error)
 	l.reqChan <- req{
 		name: name,
 		p:    p,
-		done: done,
+		res:  res,
 	}
 	select {
-	case <-done:
+	case err := <-res:
+		if err != nil {
+			panic(err)
+		}
 	case <-time.After(MaxResolveTime):
 		panic(ErrNotProvided{name})
 	}
-	sigChanPool.Put(done)
+	resChanPool.Put(res)
 }
 
 func (l Loader) Provide(name string, v interface{}) {
