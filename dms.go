@@ -128,6 +128,9 @@ func NewCast(castType interface{}) *Cast {
 }
 
 var castHandlers = map[reflect.Type]func(fn interface{}, args []interface{}){
+	reflect.TypeOf((*func())(nil)).Elem(): func(fn interface{}, args []interface{}) {
+		fn.(func())()
+	},
 	reflect.TypeOf((*func(int))(nil)).Elem(): func(fn interface{}, args []interface{}) {
 		fn.(func(int))(args[0].(int))
 	},
@@ -204,7 +207,7 @@ func (d *Duration) Done(what string) {
 func (d *Duration) End() {
 	d.cond.L.Lock()
 	if d.waiting != 0 {
-		panic(new(ErrStarvation))
+		panic(ErrStarvation{})
 	}
 	d.cond.L.Unlock()
 }

@@ -1,19 +1,10 @@
 package dms
 
 import (
-	crand "crypto/rand"
-	"encoding/binary"
-	"math/rand"
 	"strconv"
 	"testing"
 	"time"
 )
-
-func init() {
-	var seed int64
-	binary.Read(crand.Reader, binary.LittleEndian, &seed)
-	rand.Seed(seed)
-}
 
 func TestNew(t *testing.T) {
 	sys := New()
@@ -110,19 +101,62 @@ func TestCast(t *testing.T) {
 	}
 }
 
-type Funcs []func()
-
-func (s Funcs) Shuffle() {
-	for i := len(s) - 1; i >= 1; i-- {
-		j := rand.Intn(i + 1)
-		s[i], s[j] = s[j], s[i]
+func TestUnknownCastType(t *testing.T) {
+	var c *Cast
+	func() {
+		defer func() {
+			p := recover()
+			if p == nil {
+				t.Fatal("should fail")
+			}
+			if _, ok := p.(ErrUnknownCastType); !ok {
+				t.Fatal("should be ErrUnknownCastType")
+			}
+		}()
+		c = NewCast((*func(int, int, int))(nil))
+	}()
+	AddCastType((*func(int, int, int))(nil), func(fn interface{}, args []interface{}) {
+		fn.(func(int, int, int))(args[0].(int), args[1].(int), args[2].(int))
+	})
+	func() {
+		defer func() {
+			p := recover()
+			if p != nil {
+				t.Fail()
+			}
+		}()
+		c = NewCast((*func(int, int, int))(nil))
+	}()
+	n := 0
+	c.Add(func(a, b, c int) {
+		n += a + b + c
+	})
+	c.Call(1, 2, 3)
+	if n != 6 {
+		t.Fail()
 	}
+}
+
+func TestBadCastFunc(t *testing.T) {
+	c := NewCast((*func())(nil))
+	func() {
+		defer func() {
+			p := recover()
+			if p == nil {
+				t.Fatal("should fail")
+			}
+			if _, ok := p.(ErrBadCastFunc); !ok {
+				t.Fatal("should be ErrBadCastFunc")
+			}
+		}()
+		c.Add(func(int) {})
+	}()
 }
 
 func TestDuration(t *testing.T) {
 	d := NewDuration()
 	max := 512
-	fns := []func(){}
+	cast := NewCast((*func())(nil))
 	res := []int{}
 	for i := 0; i < max; i++ {
 		i := i
@@ -131,12 +165,9 @@ func TestDuration(t *testing.T) {
 			d.Done(strconv.Itoa(i + 1))
 			res = append(res, i)
 		}
-		fns = append(fns, fn)
+		cast.Add(fn)
 	}
-	Funcs(fns).Shuffle()
-	for _, fn := range fns {
-		go fn()
-	}
+	go cast.Pcall()
 	d.Done("0")
 	d.Wait(strconv.Itoa(max))
 	for i := 0; i < max; i++ {
@@ -145,4 +176,24 @@ func TestDuration(t *testing.T) {
 		}
 	}
 	d.End()
+}
+
+func TestDurationBadEnd(t *testing.T) {
+	d := NewDuration()
+	go func() {
+		d.Wait("foo")
+	}()
+	time.Sleep(time.Millisecond * 50) // should be waiting after sleep
+	func() {
+		defer func() {
+			p := recover()
+			if p == nil {
+				t.Fatal("should panic")
+			}
+			if _, ok := p.(ErrStarvation); !ok {
+				t.Fatal("should be ErrStarvation")
+			}
+		}()
+		d.End()
+	}()
 }
