@@ -127,20 +127,35 @@ func NewCast(castType interface{}) *Cast {
 	}
 }
 
-var castHandlers = map[reflect.Type]func(fns, args []interface{}){
-	reflect.TypeOf((*func(int))(nil)).Elem(): func(fns, args []interface{}) {
-		for _, fn := range fns {
-			fn.(func(int))(args[0].(int))
-		}
+var castHandlers = map[reflect.Type]func(fn interface{}, args []interface{}){
+	reflect.TypeOf((*func(int))(nil)).Elem(): func(fn interface{}, args []interface{}) {
+		fn.(func(int))(args[0].(int))
 	},
 }
 
-func AddCastType(p interface{}, handler func(fns, args []interface{})) {
+func AddCastType(p interface{}, handler func(fn interface{}, args []interface{})) {
 	castHandlers[reflect.TypeOf(p).Elem()] = handler
 }
 
 func (c *Cast) Call(args ...interface{}) {
-	castHandlers[c.what](c.fns, args)
+	handler := castHandlers[c.what]
+	for _, fn := range c.fns {
+		handler(fn, args)
+	}
+}
+
+func (c *Cast) Pcall(args ...interface{}) {
+	handler := castHandlers[c.what]
+	wg := new(sync.WaitGroup)
+	wg.Add(len(c.fns))
+	for _, fn := range c.fns {
+		fn := fn
+		go func() {
+			handler(fn, args)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
 }
 
 func (c *Cast) Add(fn interface{}) {
