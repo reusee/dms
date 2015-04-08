@@ -15,8 +15,8 @@ type Mod interface {
 }
 
 type Loader struct {
-	reqChan chan req
-	proChan chan pro
+	reqChan chan call
+	proChan chan call
 }
 
 type Sys struct {
@@ -24,55 +24,49 @@ type Sys struct {
 	closed chan struct{}
 }
 
-type req struct {
-	name string
-	p    interface{}
-	res  chan error
-}
-
-type pro struct {
-	name string
-	v    interface{}
-	res  chan error
+type call struct {
+	str   string
+	iface interface{}
+	res   chan error
 }
 
 func New() *Sys {
 	closed := make(chan struct{})
 
 	// start keeper
-	reqChan := make(chan req)
-	proChan := make(chan pro)
+	reqChan := make(chan call)
+	proChan := make(chan call)
 	go func() {
 		keep := make(map[string]reflect.Value)
-		reqs := make(map[string][]req)
+		reqs := make(map[string][]call)
 		for {
 			select {
 			case r := <-reqChan:
-				if v, ok := keep[r.name]; ok {
-					if target := reflect.ValueOf(r.p).Elem(); target.Type() != v.Type() {
+				if v, ok := keep[r.str]; ok {
+					if target := reflect.ValueOf(r.iface).Elem(); target.Type() != v.Type() {
 						r.res <- ErrTypeMismatch{v.Type(), target.Type()}
 					} else {
 						target.Set(v)
 						r.res <- nil
 					}
 				} else {
-					reqs[r.name] = append(reqs[r.name], r)
+					reqs[r.str] = append(reqs[r.str], r)
 				}
 			case p := <-proChan:
-				if _, ok := keep[p.name]; ok {
-					p.res <- ErrDuplicatedProvision{p.name}
+				if _, ok := keep[p.str]; ok {
+					p.res <- ErrDuplicatedProvision{p.str}
 				} else {
-					v := reflect.ValueOf(p.v)
-					keep[p.name] = v
-					for _, r := range reqs[p.name] {
-						if target := reflect.ValueOf(r.p).Elem(); target.Type() != v.Type() {
+					v := reflect.ValueOf(p.iface)
+					keep[p.str] = v
+					for _, r := range reqs[p.str] {
+						if target := reflect.ValueOf(r.iface).Elem(); target.Type() != v.Type() {
 							r.res <- ErrTypeMismatch{v.Type(), target.Type()}
 						} else {
 							target.Set(v)
 							r.res <- nil
 						}
 					}
-					reqs[p.name] = reqs[p.name][0:0]
+					reqs[p.str] = reqs[p.str][0:0]
 					p.res <- nil
 				}
 			case <-closed:
@@ -106,10 +100,10 @@ var resChanPool = sync.Pool{
 
 func (l Loader) Require(name string, p interface{}) {
 	res := resChanPool.Get().(chan error)
-	l.reqChan <- req{
-		name: name,
-		p:    p,
-		res:  res,
+	l.reqChan <- call{
+		str:   name,
+		iface: p,
+		res:   res,
 	}
 	select {
 	case err := <-res:
@@ -124,10 +118,10 @@ func (l Loader) Require(name string, p interface{}) {
 
 func (l Loader) Provide(name string, v interface{}) {
 	res := resChanPool.Get().(chan error)
-	l.proChan <- pro{
-		name: name,
-		v:    v,
-		res:  res,
+	l.proChan <- call{
+		str:   name,
+		iface: v,
+		res:   res,
 	}
 	if err := <-res; err != nil {
 		panic(err)
