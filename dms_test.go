@@ -119,6 +119,25 @@ func TestTypeMismatch(t *testing.T) {
 	}})
 }
 
+func TestDuplicatedProvision(t *testing.T) {
+	sys := New()
+	sys.Load(foo{func(loader Loader) {
+		loader.Provide("foo", 42)
+		func() {
+			defer func() {
+				p := recover()
+				if p == nil {
+					t.Fatal("should panic")
+				}
+				if _, ok := p.(ErrDuplicatedProvision); !ok {
+					t.Fatal("should be ErrDuplicatedProvision")
+				}
+			}()
+			loader.Provide("foo", 42)
+		}()
+	}})
+}
+
 func TestCast(t *testing.T) {
 	n := 0
 	c := NewCast((*func(int))(nil))

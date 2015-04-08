@@ -33,6 +33,7 @@ type req struct {
 type pro struct {
 	name string
 	v    interface{}
+	res  chan error
 }
 
 func New() *Sys {
@@ -58,18 +59,22 @@ func New() *Sys {
 					reqs[r.name] = append(reqs[r.name], r)
 				}
 			case p := <-proChan:
-				v := reflect.ValueOf(p.v)
-				//TODO disallow duplicated provide
-				keep[p.name] = v
-				for _, r := range reqs[p.name] {
-					if target := reflect.ValueOf(r.p).Elem(); target.Type() != v.Type() {
-						r.res <- ErrTypeMismatch{v.Type(), target.Type()}
-					} else {
-						target.Set(v)
-						r.res <- nil
+				if _, ok := keep[p.name]; ok {
+					p.res <- ErrDuplicatedProvision{p.name}
+				} else {
+					v := reflect.ValueOf(p.v)
+					keep[p.name] = v
+					for _, r := range reqs[p.name] {
+						if target := reflect.ValueOf(r.p).Elem(); target.Type() != v.Type() {
+							r.res <- ErrTypeMismatch{v.Type(), target.Type()}
+						} else {
+							target.Set(v)
+							r.res <- nil
+						}
 					}
+					reqs[p.name] = reqs[p.name][0:0]
+					p.res <- nil
 				}
-				reqs[p.name] = reqs[p.name][0:0]
 			case <-closed:
 				return
 			}
@@ -118,10 +123,16 @@ func (l Loader) Require(name string, p interface{}) {
 }
 
 func (l Loader) Provide(name string, v interface{}) {
+	res := resChanPool.Get().(chan error)
 	l.proChan <- pro{
 		name: name,
 		v:    v,
+		res:  res,
 	}
+	if err := <-res; err != nil {
+		panic(err)
+	}
+	resChanPool.Put(res)
 }
 
 type Cast struct {
