@@ -164,3 +164,47 @@ func (c *Cast) Add(fn interface{}) {
 	}
 	c.fns = append(c.fns, fn)
 }
+
+type Duration struct {
+	cond    *sync.Cond
+	state   map[string]struct{}
+	waiting int
+}
+
+func NewDuration() *Duration {
+	d := &Duration{
+		cond: sync.NewCond(new(sync.Mutex)),
+	}
+	d.Start()
+	return d
+}
+
+func (d *Duration) Start() {
+	d.state = make(map[string]struct{})
+	d.waiting = 0
+}
+
+func (d *Duration) Wait(what string) {
+	d.cond.L.Lock()
+	d.waiting++
+	for _, ok := d.state[what]; !ok; _, ok = d.state[what] {
+		d.cond.Wait()
+	}
+	d.waiting--
+	d.cond.L.Unlock()
+}
+
+func (d *Duration) Done(what string) {
+	d.cond.L.Lock()
+	d.state[what] = struct{}{}
+	d.cond.Broadcast()
+	d.cond.L.Unlock()
+}
+
+func (d *Duration) End() {
+	d.cond.L.Lock()
+	if d.waiting != 0 {
+		panic(new(ErrStarvation))
+	}
+	d.cond.L.Unlock()
+}

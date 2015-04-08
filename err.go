@@ -13,3 +13,6 @@ type ErrUnknownCastType struct {
 type ErrBadCastFunc struct {
 	What interface{}
 }
+
+type ErrStarvation struct {
+}

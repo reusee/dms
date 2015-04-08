@@ -1,9 +1,19 @@
 package dms
 
 import (
+	crand "crypto/rand"
+	"encoding/binary"
+	"math/rand"
+	"strconv"
 	"testing"
 	"time"
 )
+
+func init() {
+	var seed int64
+	binary.Read(crand.Reader, binary.LittleEndian, &seed)
+	rand.Seed(seed)
+}
 
 func TestNew(t *testing.T) {
 	sys := New()
@@ -98,4 +108,41 @@ func TestCast(t *testing.T) {
 	if n != 7 {
 		t.Fail()
 	}
+}
+
+type Funcs []func()
+
+func (s Funcs) Shuffle() {
+	for i := len(s) - 1; i >= 1; i-- {
+		j := rand.Intn(i + 1)
+		s[i], s[j] = s[j], s[i]
+	}
+}
+
+func TestDuration(t *testing.T) {
+	d := NewDuration()
+	max := 512
+	fns := []func(){}
+	res := []int{}
+	for i := 0; i < max; i++ {
+		i := i
+		fn := func() {
+			d.Wait(strconv.Itoa(i))
+			d.Done(strconv.Itoa(i + 1))
+			res = append(res, i)
+		}
+		fns = append(fns, fn)
+	}
+	Funcs(fns).Shuffle()
+	for _, fn := range fns {
+		go fn()
+	}
+	d.Done("0")
+	d.Wait(strconv.Itoa(max))
+	for i := 0; i < max; i++ {
+		if res[i] != i {
+			t.Fail()
+		}
+	}
+	d.End()
 }
